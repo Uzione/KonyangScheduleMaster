@@ -5,7 +5,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
-import time
 import os
 
 app = Flask(__name__)
@@ -20,6 +19,7 @@ def get_schedule():
     user_id = data.get('user_id')
     user_password = data.get('user_password')
     
+    # 아이디와 비밀번호 필수 체크
     if not user_id or not user_password:
         return jsonify({"error": "아이디와 비밀번호는 필수입니다."}), 400
 
