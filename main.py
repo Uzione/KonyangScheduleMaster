@@ -1,3 +1,4 @@
+from flask import Flask, request, jsonify
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -7,20 +8,37 @@ from bs4 import BeautifulSoup
 import time
 import os
 
-def auto_login_and_crawl(url, user_id, user_password):
-    # ChromeDriver 경로 설정 (Cloud Run 환경에 맞게 설정)
-    driver_path = os.environ.get('CHROMEDRIVER_PATH', '/usr/lib/chromium-driver')
-    service = Service(driver_path)
-    
-    # ChromeOptions 설정 (Headless 모드 사용)
-    options = webdriver.ChromeOptions()
-    options.binary_location = os.environ.get('CHROMIUM_BIN', '/usr/bin/chromium')
+app = Flask(__name__)
 
-    # Headless 모드로 Chrome 실행
-    driver = webdriver.Chrome(service=service, options=options)
+# ChromeDriver 경로 환경 변수로 설정 (Cloud Run에서는 기본 경로 사용 가능)
+driver_path = os.environ.get('CHROMEDRIVER_PATH', '/usr/lib/chromium-driver')
+
+@app.route('/get_schedule', methods=['POST'])
+def get_schedule():
+    # 클라이언트에서 받은 데이터
+    data = request.get_json()
+    user_id = data.get('user_id')
+    user_password = data.get('user_password')
+    
+    if not user_id or not user_password:
+        return jsonify({"error": "아이디와 비밀번호는 필수입니다."}), 400
+
+    url = "https://lms.konyang.ac.kr/login/doLoginPage.dunet"
+    
+    # 크롤링 함수 실행
+    schedule_data = auto_login_and_crawl(url, user_id, user_password)
+    
+    if schedule_data:
+        return jsonify(schedule_data), 200
+    else:
+        return jsonify({"error": "강의 정보를 가져올 수 없습니다."}), 500
+
+def auto_login_and_crawl(url, user_id, user_password):
+    # ChromeDriver 경로 설정
+    service = Service(driver_path)
+    driver = webdriver.Chrome(service=service)
 
     try:
-        # 로그인 페이지 열기
         driver.get(url)
 
         # 로그인 수행
@@ -40,43 +58,23 @@ def auto_login_and_crawl(url, user_id, user_password):
         lecture_container = soup.find("div", id="landing_lec_box_container")
         lecture_elements = lecture_container.find_all("li", class_="box") if lecture_container else []
 
+        lectures = []
         for lecture_element in lecture_elements:
-            # 강의명 추출
             lecture_name = lecture_element.find("strong", class_="title").text.strip()
             print(f"\n강의명: {lecture_name}")
 
-            # 강의 링크 가져오기
-            lecture_link = lecture_element.find("a", href=True)["href"]
+            # 강의 정보 추가
+            lectures.append({
+                '강의명': lecture_name,
+                # 추가적인 정보 처리 가능
+            })
 
-            # 강의 페이지로 이동
-            driver.execute_script(lecture_link)
-
-            # 오프라인 출석탭으로 이동
-            try:
-                # 로딩 시간을 짧게 설정한 후, 요소가 나타나면 즉시 이동
-                offline_attendance_tab = WebDriverWait(driver, 2).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'a.btn_menu_link[href="/lms/class/attendManage/doStudentView.dunet"]'))
-                )
-                driver.execute_script("arguments[0].click();", offline_attendance_tab)
-                time.sleep(0.5)  # 페이지 로딩 시간 최소화
-
-                # 오프라인 출석 페이지에서 데이터 가져오기
-                page_source = driver.page_source
-                lectures_data = parse_attendance_data(page_source, lecture_name)
-
-                if lectures_data:
-                    for data in lectures_data:
-                        print(f"강의 정보: {data}")
-                else:
-                    print("수업 정보가 없는 강의입니다.")
-
-            except Exception as e:
-                print("오프라인 출석탭 이동 중 오류 발생:", str(e))
-
-        input("작업을 확인한 후 Enter 키를 눌러 종료하세요...")
-
+        return lectures
+        
     except Exception as e:
-        print("로그인 중 오류 발생:", str(e))
+        print("오류 발생:", str(e))
+        return None
+
     finally:
         driver.quit()
 
@@ -122,8 +120,5 @@ def parse_attendance_data(page_source, lecture_name):
     return lectures if lectures else None
 
 if __name__ == "__main__":
-    url = "https://lms.konyang.ac.kr/login/doLoginPage.dunet"
-    user_id = input("아이디를 입력하세요: ")
-    user_password = input("비밀번호를 입력하세요: ")
-
-    auto_login_and_crawl(url, user_id, user_password)
+    # Cloud Run에서 서버가 실행될 때는 이 부분을 사용
+    app.run(host='0.0.0.0', port=8080)
