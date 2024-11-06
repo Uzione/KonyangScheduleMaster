@@ -45,4 +45,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 ENV DISPLAY=:99
 
 # 크롬을 실행할 때 사용할 기본 명령어 설정
-CMD ["python", "your_script_name.py"]
+CMD ["python", "main.py"]
