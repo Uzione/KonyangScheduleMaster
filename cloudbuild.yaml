@@ -3,7 +3,7 @@ steps:
     args:
       - 'build'
       - '-t'
-      - 'gcr.io/konyangschedulemaster/konyang-schedule'  # 프로젝트 ID 사용
+      - 'gcr.io/ksmrun/konyang-schedule'  # 프로젝트 ID 사용
       - '.'
 images:
-  - 'gcr.io/konyangschedulemaster/konyang-schedule'  # 동일한 이미지 URL
+  - 'gcr.io/ksmrun/konyang-schedule'  # 동일한 이미지 URL
