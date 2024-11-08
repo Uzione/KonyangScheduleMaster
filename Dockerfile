@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     libappindicator3-1 \
     libasound2 \
     xdg-utils \
+    apt-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Chrome과 ChromeDriver 설치
