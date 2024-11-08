@@ -1,11 +1,10 @@
-# 베이스 이미지로 Python 3.11 이미지를 사용
+# Python 3.11 기반의 이미지를 사용
 FROM python:3.11-slim
 
-# 필수 패키지 및 의존성 설치
+# 필수 패키지 설치 (curl, Chromium 등)
 RUN apt-get update && apt-get install -y \
-    apt-utils \
-    wget \
     curl \
+    wget \
     unzip \
     ca-certificates \
     libx11-dev \
@@ -16,33 +15,23 @@ RUN apt-get update && apt-get install -y \
     fonts-liberation \
     libappindicator3-1 \
     libasound2 \
-    xdg-utils \
+    chromium \
+    chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
-# Chrome과 ChromeDriver 설치
-RUN GOOGLE_CHROME_VERSION=116.0.5845.96 && \
-    wget https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb && \
-    dpkg -i google-chrome-stable_current_amd64.deb && \
-    apt-get -y -f install && \
-    rm google-chrome-stable_current_amd64.deb
-
-# ChromeDriver 다운로드
-RUN CHROMEDRIVER_VERSION=116.0.5845.96 && \
-    wget https://chromedriver.storage.googleapis.com/116.0.5845.96/chromedriver_linux64.zip && \
-    unzip chromedriver_linux64.zip -d /usr/local/bin && \
-    rm chromedriver_linux64.zip
-
-# 작업 디렉토리 설정
+# Flask 앱을 위한 디렉토리 생성
 WORKDIR /app
 
-# 현재 디렉토리의 파일들을 컨테이너의 /app 디렉토리로 복사
-COPY . /app
-
-# 의존성 설치 (selenium, BeautifulSoup 등)
+# `requirements.txt` 복사 및 패키지 설치
+COPY requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 크롬을 헤드리스 모드로 실행하기 위해 환경변수 설정
+# 애플리케이션 코드 복사
+COPY . /app/
+
+# ChromeDriver 경로 설정 (Cloud Run 환경에서는 기본 경로 사용)
+ENV CHROMEDRIVER_PATH=/usr/lib/chromium-driver
 ENV DISPLAY=:99
 
-# 크롬을 실행할 때 사용할 기본 명령어 설정
+# Flask 앱 실행
 CMD ["python", "app.py"]
