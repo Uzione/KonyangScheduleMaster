@@ -3,6 +3,7 @@ FROM python:3.11-slim
 
 # 필수 패키지 및 의존성 설치
 RUN apt-get update && apt-get install -y \
+    apt-utils \
     wget \
     curl \
     unzip \
@@ -16,7 +17,6 @@ RUN apt-get update && apt-get install -y \
     libappindicator3-1 \
     libasound2 \
     xdg-utils \
-    apt-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Chrome과 ChromeDriver 설치
