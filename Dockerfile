@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
     libnss3 \
     libxss1 \
     libappindicator3-1 \
-    libgtksourceview2.0-0 \
+    libgtksourceview3.0-0 \
     fonts-liberation \
     libappindicator3-1 \
     libasound2 \
