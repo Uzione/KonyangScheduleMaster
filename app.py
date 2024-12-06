@@ -7,22 +7,15 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 import time
-import os
-import urllib.parse
 
 app = Flask(__name__)
 
 # Chrome WebDriver 초기화
 def init_webdriver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless")  # 시각적 확인이 필요하면 이 줄을 주석 처리
+    chrome_options.add_argument("--headless")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--disable-extensions")
-    chrome_options.add_argument("--disable-plugins")
-    chrome_options.add_argument("--disable-images")
-    chrome_options.add_argument("--single-process")
     service = Service(executable_path="/usr/local/bin/chromedriver-linux64/chromedriver")
     return webdriver.Chrome(service=service, options=chrome_options)
 
@@ -53,9 +46,9 @@ def verify_id():
 def login_to_lms(driver, url, user_id, user_password):
     driver.get(url)
 
-    driver.find_element(By.ID, "id").send_keys(user_id)
-    driver.find_element(By.ID, "pass").send_keys(user_password)
-    driver.find_element(By.CSS_SELECTOR, ".btn_mormal_type").click()
+    driver.execute_script("document.getElementById('id').value = arguments[0];", user_id)
+    driver.execute_script("document.getElementById('pass').value = arguments[0];", user_password)
+    driver.execute_script("""document.querySelector('.btn_mormal_type').click();""")
         
     # URL 변화 대기
     WebDriverWait(driver, 5).until(EC.url_changes(url))
@@ -103,7 +96,7 @@ def auto_login_and_crawl(url, user_id, user_password):
                     EC.element_to_be_clickable((By.CSS_SELECTOR, 'a.btn_menu_link[href="/lms/class/attendManage/doStudentView.dunet"]'))
                 )
                 driver.execute_script("arguments[0].click();", offline_attendance_tab)
-                time.sleep(0.5)
+                WebDriverWait(driver, 10).until(EC.url_changes(url))
 
                 # 오프라인 출석 페이지에서 데이터 가져오기
                 page_source = driver.page_source
@@ -149,7 +142,7 @@ def parse_attendance_data(page_source, lecture_name):
             class_number = tds[1].text.strip() if len(tds) > 1 else None
             supplementary_info = tds[2].text.strip() if len(tds) > 2 and tds[2].text.strip() != '' else '-'
 
-        # 유효한 정보를 확인하고 리스트에 추가
+        # 유효성 검사 후 리스트에 추가
         if date and class_number and date != '6' and date.startswith('20'):
             supplementary_info = ' '.join(supplementary_info.split())
             lecture_info = {
@@ -163,7 +156,7 @@ def parse_attendance_data(page_source, lecture_name):
 
     return lectures if lectures else None
 
-# 강의 이동 및 출석 처리 API
+# 오프라인 출석 체크 함수수
 @app.route('/mark_attendance', methods=['GET'])
 def mark_attendance():
     lecture_name = request.args.get("lecture_name")
@@ -178,80 +171,122 @@ def mark_attendance():
         # 1. 로그인
         login_to_lms(driver, url, user_id, user_password)
 
-        # 2. 강의 이동
-        lecture_element = None
-        lecture_list = driver.find_elements(By.CSS_SELECTOR, 'div.top.offline a strong.title')
-        for element in lecture_list:
-            if lecture_name in element.text:
-                lecture_element = element.find_element(By.XPATH, "..")
-                break
+        # 2. 입력된 강의 탭으로 이동
+        script = """
+            let elements = document.querySelectorAll('div.top.offline a strong.title');
+            for (let element of elements) {
+                if (element.textContent.includes(arguments[0])) {
+                    return element.parentElement;
+                }
+            }
+        """
+        
+        lecture_element = driver.execute_script(script, lecture_name)
 
         if not lecture_element:
             return jsonify({"status": "failure", "message": "해당 강의명을 찾을 수 없습니다."})
 
-        lecture_element.click()
+        driver.execute_script("arguments[0].click();", lecture_element)
+        WebDriverWait(driver, 10).until(EC.url_changes(url))
 
-        # 3. 오프라인 출석 탭 이동
-        offline_attendance_tab = WebDriverWait(driver, 2).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, 'a.btn_menu_link[href="/lms/class/attendManage/doStudentView.dunet"]'))
-            )
-        driver.execute_script("arguments[0].click();", offline_attendance_tab)
-        time.sleep(0.5)
+        # 3. 해당 강의의 오프라인 출석 탭 이동
+        script = """
+                    let element = document.querySelector('a.btn_menu_link[href="/lms/class/attendManage/doStudentView.dunet"]');
+                    if (element) {
+                        element.click();
+                    }
+                """
+        driver.execute_script(script)
 
-        # 4. 특정 날짜의 <tr> 찾기 (날짜가 포함된 tr 선택)
+        # 4. 입력된 날짜의 <tr> 찾기
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, 'va_m')))
-        rows = driver.find_elements(By.CSS_SELECTOR, 'tr.va_m')
-        target_row = None
+        
+        script = f"""
+            let rows = document.querySelectorAll('tr.va_m');
+            let targetRow = null;
+            let attendanceButton = null;
+            let isClicked = false;
 
-        for row in rows:
-            date_cells = row.find_elements(By.TAG_NAME, 'td')
-            for date_cell in date_cells:
-                if attendance_date in date_cell.text:
-                    target_row = row
-                    break
-            if target_row:
-                break
+            // 1. 목표 날짜가 포함된 행 찾기
+            for (let row of rows) {{
+                let cells = row.querySelectorAll('td');
+                for (let cell of cells) {{
+                    if (cell.textContent.includes('{attendance_date}')) {{
+                        targetRow = row;
+                        break;
+                    }}
+                }}
+                if (targetRow) break;
+            }}
 
-        if not target_row:
-            return jsonify({"status": "failure", "message": "해당 날짜의 출석 정보를 찾을 수 없습니다."})
+            // 2. 목표 날짜가 포함된 행에서 출석 버튼 클릭
+            if (targetRow) {{
+                attendanceButton = targetRow.querySelector('td a[href="javascript:;"]');
+                if (attendanceButton) {{
+                    try {{
+                        attendanceButton.scrollIntoView();
+                        attendanceButton.click();
+                        let isClicked = true; // 성공적으로 클릭
+                    }} catch (e) {{
+                        let isClicked = false; // 클릭 실패 시 false 반환
+                    }}
+                }}
+            }}
 
-        # 5. 해당 날짜의 출석 버튼 클릭 (자바스크립트로 URL 변경)
-        attendance_button = None
+            // 3. 출석체크 버튼이 없다면 동일 날짜 내 다른 tr에서 버튼 클릭 시도
+            if (!isClicked) {{
+                for (let row of rows) {{
+                    if (row !== targetRow) {{
+                        let cells = row.querySelectorAll('td');
+                        for (let cell of cells) {{
+                            if (cell.textContent.includes('{attendance_date}')) {{
+                                attendanceButton = row.querySelector('td a[href="javascript:;"]');
+                                if (attendanceButton) {{
+                                    try {{
+                                        attendanceButton.click();
+                                        return true; // 성공적으로 클릭
+                                    }} catch (e) {{
+                                        return false; // 클릭 실패 시 false 반환
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }}
+                    if (isClicked) break;
+                }}
+            }}
 
-        try:
-            attendance_button = target_row.find_element(By.CSS_SELECTOR, 'td a[href="javascript:;"]')
-            driver.execute_script("arguments[0].scrollIntoView();", attendance_button)
-            driver.execute_script("arguments[0].click();", attendance_button)
-        except Exception as e:
-            # 동일한 날짜 내 다른 tr을 찾아 자바스크립트 실행
-            for row in rows:
-                date_cells = row.find_elements(By.TAG_NAME, 'td')
-                for date_cell in date_cells:
-                    if attendance_date in date_cell.text:
-                        if row != target_row:
-                            try:
-                                attendance_button = row.find_element(By.CSS_SELECTOR, 'td a[href="javascript:;"]')
-                                driver.execute_script("arguments[0].scrollIntoView();", attendance_button)
-                                driver.execute_script("arguments[0].click();", attendance_button)
-                                break
-                            except Exception as inner_e:
-                                print(f"[다른 tr 출석 버튼 클릭 실패]: {inner_e}")
-                if attendance_button:
-                    break
+            return false; // 버튼을 찾지 못함
+        """
 
-        if not attendance_button:
+        result = driver.execute_script(script)
+
+        if result:
+            print("[success] 출석 버튼 클릭 완료")
+        else:
             return jsonify({"status": "failure", "message": "출석 버튼을 찾을 수 없습니다."})
 
-        # 6. OTP 코드 입력 및 인증
-        otp_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, 'otpcode'))
-        )
-        otp_input.send_keys(otp_code)
+        # 5. OTP 코드 입력 및 인증
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, 'otpcode')))
+        script = f"""
+            // OTP 코드 입력
+            let otpInput = document.getElementById('otpcode');
+            if (otpInput) {{
+                otpInput.value = '{otp_code}';
+            }}
 
-        certification_button = driver.find_element(By.CLASS_NAME, 'btn_certification')
-        certification_button.click()
+            // 인증 버튼 클릭
+            let certificationButton = document.querySelector('.btn_certification');
+            if (certificationButton) {{
+                certificationButton.click();
+            }}
+        """
 
-        # 7. 인증 결과 대기 (WebDriverWait 사용)
+        driver.execute_script(script)
+        
+
+
+        # 6. 인증 결과 확인
         try:
             WebDriverWait(driver, 10).until(EC.alert_is_present())  # alert이 나타날 때까지 대기
             alert_message = driver.switch_to.alert.text  # 인증 후 브라우저 alert 메시지 확인
